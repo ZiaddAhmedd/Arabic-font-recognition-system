@@ -312,12 +312,11 @@ class Prediction:
     def __init__(self, X_data, y_labels, model, preprocess_pipe, labels):
         self.X_train = X_data
 
-        self.label_encoder = LabelEncoder()
-        self.y_train = self.label_encoder.fit_transform(y_labels)
+        self.labels = labels
+        self.y_train =  [self.labels.index(i) for i in y_labels]
 
         self.preprocess_pipe = preprocess_pipe
         self.model = model
-        self.labels = labels
 
     def preprocess_data(self, X, test = False, X_train_features_pkl_path="X_train_features.pkl", X_train_preprocessed_images_pkl_path="X_train_preprocessed_images.pkl", X_train_hog_sift_pkl_path="X_train_hog_sift.pkl"):
         fixed_len = 128 * 350
@@ -405,7 +404,7 @@ class Prediction:
         return self.model.predict(X_test_features)
     
 if __name__ == "__main__":
-    labels = ['IBM Plex Sans Arabic', 'Lemonada', 'Marhey', 'Scheherazade New']
+    labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
     
     model = LogisticRegression(warm_start=True, solver='saga', penalty='l2', C=0.8, random_state=42)
     preprocess_pipe = Pipeline([
