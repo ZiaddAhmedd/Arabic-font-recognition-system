@@ -430,7 +430,7 @@ if __name__ == "__main__":
         with open('y_labels.pkl', 'rb') as f:
             y_labels = pickle.load(f)
     
-    Predictor = Prediction(X_data, y_labels, model, preprocess_pipe, labels, load=False)
+    Predictor = Prediction(X_data, y_labels, model, preprocess_pipe, labels)
 
     test_data = []
     test_img = cv2.imread('998.jpeg', cv2.IMREAD_GRAYSCALE)
