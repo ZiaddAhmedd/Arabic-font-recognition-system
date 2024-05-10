@@ -308,12 +308,103 @@ def apply_additional_edm_features(X_edm1, X_edm2):
     edges_regularity = np.array([x / x[4] for x in X_edm2])
     return edges_direction, homogeneity, pixel_regularity, edges_regularity
 
+class PyTorchClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, hidden_dim1, hidden_dim2, output_dim , learning_rate=0.0002 , epoch=50):
+        self.hidden_dim1 = hidden_dim1
+        self.hidden_dim2 = hidden_dim2
+        self.output_dim = output_dim
+        self.best_accuracy = -1  # Initialize with a value that will definitely be improved upon
+        self.learning_rate = learning_rate
+        self.epoch = epoch
+
+    def create_model(self, input_dim):
+        self.input_dim = input_dim
+
+        model = nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim1),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim1, self.hidden_dim2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim2, self.output_dim),
+        )
+        return model
+    
+    def fit(self, X_train, X_val, y_train, y_val, input_dim):
+        self.model = self.create_model(input_dim)
+        
+        lb = LabelBinarizer()
+        y_train_one_hot = lb.fit_transform(y_train)
+        y_val_one_hot = lb.fit_transform(y_val)
+
+        X_train_tensor = torch.FloatTensor(X_train)
+        y_train_tensor = torch.LongTensor(y_train_one_hot)
+
+        X_val_tensor = torch.FloatTensor(X_val)
+        y_val_tensor = torch.LongTensor(y_val_one_hot)
+        
+        # Create a dataset
+        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+        test_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+
+        # Create a dataloader
+        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+
+        # Create a tqdm object
+        progress_bar = tqdm(range(self.epoch), desc="Epoch", leave=False)
+
+        for self.epoch in progress_bar:
+            total_loss = 0
+            for X_batch, y_batch in train_loader:
+                optimizer.zero_grad()
+                outputs = self.model(X_batch)
+                loss = criterion(outputs, torch.max(y_batch, 1)[1])
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+            # Calculate accuracy on the validation set
+            val_acc = 0
+            with torch.no_grad():
+                for X_val, y_val in test_loader:
+                    outputs = self.model(X_val)
+                    _, predicted = torch.max(outputs, 1)
+                    val_acc += (predicted == torch.max(y_val, 1)[1]).sum().item()
+            accuracy = val_acc / len(y_val_tensor)
+
+            # If the current model has better accuracy, save the model parameters
+            if accuracy > self.best_accuracy:
+                self.best_accuracy = accuracy
+                self.best_model_params = self.model.state_dict()
+
+            # Update the progress bar
+            progress_bar.set_postfix({'Loss': f'{total_loss:.4f}', 'Accuracy': f'{self.best_accuracy:.4f}'})
+            
+        # Save the best model parameters to the model
+        self.save_best_model('best_model.pth')
+
+    def predict(self, X):
+        X_tensor = torch.FloatTensor(X)
+        with torch.no_grad():
+            # Set the best_model_params to the model
+            predictions = self.model(X_tensor)
+        _, predicted = torch.max(predictions, 1)
+        return predicted.numpy()
+
+    def save_best_model(self, filepath):
+        torch.save(self.best_model_params, filepath)
+
 class Prediction:
-    def __init__(self, X_data, y_labels, model, preprocess_pipe, labels):
+    def __init__(self, X_data, X_val, y_labels, y_val, model, preprocess_pipe, labels):
         self.X_train = X_data
+        self.X_val = X_val
 
         self.labels = labels
         self.y_train =  [self.labels.index(i) for i in y_labels]
+        self.y_val = [self.labels.index(i) for i in y_val]
 
         self.preprocess_pipe = preprocess_pipe
         self.model = model
@@ -383,9 +474,10 @@ class Prediction:
         return X_features_transformed
     
     def train(self):
-        X_train_features = self.preprocess_data(self.X_data)
+        X_train_features = self.preprocess_data(self.X_train)
+        X_val_features = self.preprocess_data(self.X_val, test=True)
 
-        self.model.fit(X_train_features, self.y_train)
+        self.model.fit(X_train_features, X_val_features, self.y_train, self.y_val, X_train_features.shape[1])
         
         with open("model.pkl", 'wb') as f:
             pickle.dump(self.model, f)
@@ -393,25 +485,43 @@ class Prediction:
         # Predict the training data
         y_train_pred = self.model.predict(X_train_features)
 
+        # Predict the validation data
+        y_val_pred = self.model.predict(X_val_features)
+
         # Print the accuracy
         print('Training accuracy: ', accuracy_score(self.y_train, y_train_pred)*100)
+        print('Validation accuracy: ', accuracy_score(self.y_val, y_val_pred)*100)
 
         # Print the classification report
         print('Training classification report: ', classification_report(self.y_train, y_train_pred, target_names=self.labels))
+        print('Validation classification report: ', classification_report(self.y_val, y_val_pred, target_names=self.labels))
 
     def predict(self, X):
+        start_time = time.time()
         X_test_features = self.preprocess_data(X, test=True)
-        return self.model.predict(X_test_features)
+        y_test_pred = self.model.predict(X_test_features)
+        end_time = time.time()
+        print(f"Time taken to predict: {end_time - start_time}")
+        return y_test_pred
     
 if __name__ == "__main__":
     labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
-    
-    model = LogisticRegression(warm_start=True, solver='saga', penalty='l2', C=0.8, random_state=42)
-    preprocess_pipe = Pipeline([
+        
+    models = [
+        LogisticRegression(warm_start=True, solver='saga', penalty='l2', C=0.8, random_state=42),
+        MLPClassifier(hidden_layer_sizes=(256,), activation='relu', solver='adam', verbose=True),
+        SVC(C=7.196857 , kernel='rbf', gamma='scale', random_state=42)
+    ]
+
+    if os.path.exists('preprocess_pipe.pkl'):
+        with open('preprocess_pipe.pkl', 'rb') as f:
+            preprocess_pipe = pickle.load(f)
+    else:
+        preprocess_pipe = Pipeline([
             ('scaler', StandardScaler()),
             ('pca', PCA(n_components=0.99)),
         ])
-    
+
     load = False
     if load:
         X_data, y_labels, _ = load_images()
@@ -429,12 +539,16 @@ if __name__ == "__main__":
 
         with open('y_labels.pkl', 'rb') as f:
             y_labels = pickle.load(f)
-    
-    Predictor = Prediction(X_data, y_labels, model, preprocess_pipe, labels)
 
-    test_data = []
-    test_img = cv2.imread('998.jpeg', cv2.IMREAD_GRAYSCALE)
-    test_data.append(test_img)
+    # Split the data into training and validation sets
+    X_train, X_val, y_train, y_val = train_test_split(X_data, y_labels, test_size=0.15, random_state=42, stratify=y_labels)
+
+    model = PyTorchClassifier(512, 256, len(labels) , learning_rate=0.00025, epoch=50)
+
+    Predictor = Prediction(X_train, X_val, y_train, y_val, model, preprocess_pipe, labels)
 
     Predictor.train()
-    y_pred = Predictor.predict(test_data)
+
+    X_test = [cv2.imread('363.jpeg', cv2.IMREAD_GRAYSCALE)]
+    y_test_pred = Predictor.predict(X_test)
+    print(y_test_pred)
