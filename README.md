@@ -70,7 +70,7 @@ This repository contains code for loading a dataset, preprocessing the images, a
 
 ## Contact
 For any inquiries, please contact:
-- [Ahmed Emad](mailto:)
+- [Ahmed Emad](mailto:ahmed.younes01@eng-st.cu.edu.eg)
 - [Hla Hany](mailto:hla.ahmed00@eng-st.cu.edu.eg)
 - [Ziad Ahmed](mailto:ziad.abdelhameeed01@eng-st.cu.edu.eg)
 - [Nada Tarek](mailto:)
