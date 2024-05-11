@@ -409,11 +409,15 @@ class Prediction:
         self.preprocess_pipe = preprocess_pipe
         self.model = model
 
-    def preprocess_data(self, X, test = False, X_train_features_pkl_path="X_train_features.pkl", X_train_preprocessed_images_pkl_path="X_train_preprocessed_images.pkl", X_train_hog_sift_pkl_path="X_train_hog_sift.pkl"):
+    def preprocess_data(self, X, test = False, X_train_features_pkl_path="X_train_features.pkl", X_train_preprocessed_images_pkl_path="X_train_preprocessed_images.pkl", X_train_hog_sift_pkl_path="X_train_hog_sift.pkl", X_val_preprocessed_images_pkl_path="X_val_preprocessed_images.pkl"):
         fixed_len = 128 * 350
         if test:
-            X_preprocess = [preprocess(i) for i in tqdm(X)]
-            X_preprocess = np.array(X_preprocess)
+            if os.path.exists(X_val_preprocessed_images_pkl_path):
+                with open(X_val_preprocessed_images_pkl_path, 'rb') as f:
+                    X_preprocess = pickle.load(f)
+            else:
+                X_preprocess = [preprocess(i) for i in tqdm(X)]
+                X_preprocess = np.array(X_preprocess)
             X_hog = apply_hog(X_preprocess)
             X_sift = apply_sift(X_preprocess)
             X_sift_padded = pad_sift_descriptors(X_sift, fixed_len)

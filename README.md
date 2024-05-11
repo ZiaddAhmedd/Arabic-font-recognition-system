@@ -72,6 +72,6 @@ This repository contains code for loading a dataset, preprocessing the images, a
 For any inquiries, please contact:
 - [Ahmed Emad](mailto:)
 - [Hla Hany](mailto:hla.ahmed00@eng-st.cu.edu.eg)
-- [Ziad Ahmed](mailto:)
-
+- [Ziad Ahmed](mailto:ziad.abdelhameeed01@eng-st.cu.edu.eg)
+- [Nada Tarek](mailto:)
 ---
