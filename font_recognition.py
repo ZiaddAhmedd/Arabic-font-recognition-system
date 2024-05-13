@@ -31,6 +31,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import LabelBinarizer
 from skimage.feature import hog
 from sklearn.calibration import LabelEncoder
+from copy import deepcopy
 
 def show_images(images,titles=None):
     """
@@ -308,18 +309,42 @@ def apply_additional_edm_features(X_edm1, X_edm2):
     edges_regularity = np.array([x / x[4] for x in X_edm2])
     return edges_direction, homogeneity, pixel_regularity, edges_regularity
 
-class PyTorchClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, hidden_dim1, hidden_dim2, output_dim , learning_rate=0.0002 , epoch=50):
+class Preprocessing():
+    def __init__(self, preprocess_pipe):
+        self.preprocess_pipe = preprocess_pipe
+        
+    def preprocess_data(self, X, test=False):
+        fixed_len = 128 * 350
+        X_preprocess = [preprocess(i) for i in tqdm(X)]
+        X_preprocess = np.array(X_preprocess)
+        X_hog = apply_hog(X_preprocess)
+        X_sift = apply_sift(X_preprocess)
+        X_sift_padded = pad_sift_descriptors(X_sift, fixed_len)
+        X_features = np.concatenate((X_hog, X_sift_padded), axis=1)
+        if test:
+            X_features_transformed = self.preprocess_pipe.transform(X_features)
+        else:
+            X_features_transformed = self.preprocess_pipe.fit_transform(X_features)
+            
+        with open('preprocess_pipe.pkl', 'wb') as f:
+            pickle.dump(self.preprocess_pipe, f)
+            
+        return X_features_transformed
+    
+class PyTorchClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim, preprocess_pipe, learning_rate=0.0002 , epoch=50):
+        super().__init__()
+        self.input_dim = input_dim
         self.hidden_dim1 = hidden_dim1
         self.hidden_dim2 = hidden_dim2
         self.output_dim = output_dim
         self.best_accuracy = -1  # Initialize with a value that will definitely be improved upon
         self.learning_rate = learning_rate
         self.epoch = epoch
+        self.preprocess_pipe = preprocess_pipe
+        self.model = self.create_model()
 
-    def create_model(self, input_dim):
-        self.input_dim = input_dim
-
+    def create_model(self):
         model = nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim1),
             nn.ReLU(),
@@ -328,18 +353,20 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             nn.Linear(self.hidden_dim2, self.output_dim),
         )
         return model
+        
     
-    def fit(self, X_train, X_val, y_train, y_val, input_dim):
-        self.model = self.create_model(input_dim)
+    def fit(self, X_train_features, X_val_features, y_train_labels, y_val_labels, labels):
+        y_train =  [labels.index(i) for i in y_train_labels]
+        y_val = [labels.index(i) for i in y_val_labels]
         
         lb = LabelBinarizer()
         y_train_one_hot = lb.fit_transform(y_train)
         y_val_one_hot = lb.fit_transform(y_val)
-
-        X_train_tensor = torch.FloatTensor(X_train)
+        
+        X_train_tensor = torch.FloatTensor(X_train_features)
         y_train_tensor = torch.LongTensor(y_train_one_hot)
 
-        X_val_tensor = torch.FloatTensor(X_val)
+        X_val_tensor = torch.FloatTensor(X_val_features)
         y_val_tensor = torch.LongTensor(y_val_one_hot)
         
         # Create a dataset
@@ -378,7 +405,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             # If the current model has better accuracy, save the model parameters
             if accuracy > self.best_accuracy:
                 self.best_accuracy = accuracy
-                self.best_model_params = self.model.state_dict()
+                self.best_model_state = deepcopy(self.model.state_dict(prefix="model."))
 
             # Update the progress bar
             progress_bar.set_postfix({'Loss': f'{total_loss:.4f}', 'Accuracy': f'{self.best_accuracy:.4f}'})
@@ -387,172 +414,13 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         self.save_best_model('best_model.pth')
 
     def predict(self, X):
-        X_tensor = torch.FloatTensor(X)
+        preprocess_module = Preprocessing(self.preprocess_pipe)
+        X_features_transformed = preprocess_module.preprocess_data(X, test=True)
+        X_tensor = torch.FloatTensor(X_features_transformed)
         with torch.no_grad():
-            # Set the best_model_params to the model
             predictions = self.model(X_tensor)
         _, predicted = torch.max(predictions, 1)
         return predicted.numpy()
 
     def save_best_model(self, filepath):
-        torch.save(self.best_model_params, filepath)
-
-class Prediction:
-    def __init__(self, X_data, X_val, y_labels, y_val, model, preprocess_pipe, labels):
-        self.X_train = X_data
-        self.X_val = X_val
-
-        self.labels = labels
-        self.y_train =  [self.labels.index(i) for i in y_labels]
-        self.y_val = [self.labels.index(i) for i in y_val]
-
-        self.preprocess_pipe = preprocess_pipe
-        self.model = model
-
-    def preprocess_data(self, X, test = False, X_train_features_pkl_path="X_train_features.pkl", X_train_preprocessed_images_pkl_path="X_train_preprocessed_images.pkl", X_train_hog_sift_pkl_path="X_train_hog_sift.pkl", X_val_preprocessed_images_pkl_path="X_val_preprocessed_images.pkl"):
-        fixed_len = 128 * 350
-        if test:
-            if os.path.exists(X_val_preprocessed_images_pkl_path):
-                with open(X_val_preprocessed_images_pkl_path, 'rb') as f:
-                    X_preprocess = pickle.load(f)
-            else:
-                X_preprocess = [preprocess(i) for i in tqdm(X)]
-                X_preprocess = np.array(X_preprocess)
-            X_hog = apply_hog(X_preprocess)
-            X_sift = apply_sift(X_preprocess)
-            X_sift_padded = pad_sift_descriptors(X_sift, fixed_len)
-            X_features = np.concatenate((X_hog, X_sift_padded), axis=1)
-            return self.preprocess_pipe.transform(X_features)
-        else:
-            if os.path.exists(X_train_features_pkl_path):
-                with open(X_train_features_pkl_path, 'rb') as f:
-                    X_features = pickle.load(f)
-                return X_features
-            
-            if os.path.exists(X_train_preprocessed_images_pkl_path):
-                with open(X_train_preprocessed_images_pkl_path, 'rb') as f:
-                    X_preprocess = pickle.load(f)
-            else:
-                X_preprocess = [preprocess(i) for i in tqdm(X)]
-                X_preprocess = np.array(X_preprocess)
-                with open(X_train_preprocessed_images_pkl_path, 'wb') as f:
-                    pickle.dump(X_preprocess, f)
-                    
-            if os.path.exists(X_train_hog_sift_pkl_path):
-                with open(X_train_hog_sift_pkl_path, 'rb') as f:
-                    X_features = pickle.load(f)
-            else:
-                print("Starting Hog features")
-                X_hog = apply_hog(X_preprocess)
-                print("Done with Hog features")
-                
-                print("Starting Sift features")
-                X_sift = apply_sift(X_preprocess)
-                print("Done with Sift features")
-                X_sift_padded = pad_sift_descriptors(X_sift, fixed_len)
-                
-                print("Shapes: ", X_hog.shape, X_sift_padded.shape)
-
-                X_features = np.concatenate((X_hog, X_sift_padded), axis=1)
-                with open(X_train_hog_sift_pkl_path, 'wb') as f:
-                    pickle.dump(X_features, f)        
-                del X_hog, X_sift, X_sift_padded
-                    
-            print("Starting standardization and PCA")
-            X_features_transformed = self.preprocess_pipe.fit_transform(X_features)
-            with open("preprocess_pipe.pkl", 'wb') as f:
-                pickle.dump(self.preprocess_pipe, f)
-            print("Done with standardization and PCA")
-            
-            print("Shape after PCA: ", X_features_transformed.shape)
-            with open(X_train_features_pkl_path, 'wb') as f:
-                pickle.dump(X_features_transformed, f)
-
-        # X_edm1, X_edm2 = apply_edm(X_preprocess)
-        # edges_direction, homogeneity, pixel_regularity, edges_regularity = apply_additional_edm_features(X_edm1, X_edm2)
-
-        # EDM_features = np.concatenate((edges_direction, homogeneity, pixel_regularity, edges_regularity), axis=1)
-
-        # X_features_transformed = np.concatenate((X_features_transformed, EDM_features), axis=1)
-
-        return X_features_transformed
-    
-    def train(self):
-        X_train_features = self.preprocess_data(self.X_train)
-        X_val_features = self.preprocess_data(self.X_val, test=True)
-
-        self.model.fit(X_train_features, X_val_features, self.y_train, self.y_val, X_train_features.shape[1])
-        
-        with open("model.pkl", 'wb') as f:
-            pickle.dump(self.model, f)
-
-        # Predict the training data
-        y_train_pred = self.model.predict(X_train_features)
-
-        # Predict the validation data
-        y_val_pred = self.model.predict(X_val_features)
-
-        # Print the accuracy
-        print('Training accuracy: ', accuracy_score(self.y_train, y_train_pred)*100)
-        print('Validation accuracy: ', accuracy_score(self.y_val, y_val_pred)*100)
-
-        # Print the classification report
-        print('Training classification report: ', classification_report(self.y_train, y_train_pred, target_names=self.labels))
-        print('Validation classification report: ', classification_report(self.y_val, y_val_pred, target_names=self.labels))
-
-    def predict(self, X):
-        start_time = time.time()
-        X_test_features = self.preprocess_data(X, test=True)
-        y_test_pred = self.model.predict(X_test_features)
-        end_time = time.time()
-        print(f"Time taken to predict: {end_time - start_time}")
-        return y_test_pred
-    
-if __name__ == "__main__":
-    labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
-        
-    models = [
-        LogisticRegression(warm_start=True, solver='saga', penalty='l2', C=0.8, random_state=42),
-        MLPClassifier(hidden_layer_sizes=(256,), activation='relu', solver='adam', verbose=True),
-        SVC(C=7.196857 , kernel='rbf', gamma='scale', random_state=42)
-    ]
-
-    if os.path.exists('preprocess_pipe.pkl'):
-        with open('preprocess_pipe.pkl', 'rb') as f:
-            preprocess_pipe = pickle.load(f)
-    else:
-        preprocess_pipe = Pipeline([
-            ('scaler', StandardScaler()),
-            ('pca', PCA(n_components=0.99)),
-        ])
-
-    load = False
-    if load:
-        X_data, y_labels, _ = load_images()
-        print(len(X_data), len(y_labels))
-        print("Done loading data")
-
-        with open('X_data.pkl', 'wb') as f:
-            pickle.dump(X_data, f)
-
-        with open('y_labels.pkl', 'wb') as f:
-            pickle.dump(y_labels, f)
-    else:
-        with open('X_data.pkl', 'rb') as f:
-            X_data = pickle.load(f)
-
-        with open('y_labels.pkl', 'rb') as f:
-            y_labels = pickle.load(f)
-
-    # Split the data into training and validation sets
-    X_train, X_val, y_train, y_val = train_test_split(X_data, y_labels, test_size=0.15, random_state=42, stratify=y_labels)
-
-    model = PyTorchClassifier(512, 256, len(labels) , learning_rate=0.00025, epoch=50)
-
-    Predictor = Prediction(X_train, X_val, y_train, y_val, model, preprocess_pipe, labels)
-
-    Predictor.train()
-
-    X_test = [cv2.imread('363.jpeg', cv2.IMREAD_GRAYSCALE)]
-    y_test_pred = Predictor.predict(X_test)
-    print(y_test_pred)
+        torch.save(self.best_model_state, filepath)
