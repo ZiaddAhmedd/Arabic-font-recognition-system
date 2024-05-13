@@ -1,36 +1,23 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.ndimage import interpolation as inter
 from PIL import Image as im
 import pickle
 import cv2
 from tqdm import tqdm
 from scipy.ndimage import rotate
-import time
-import joblib
-from sklearn.metrics import accuracy_score,f1_score,classification_report
+from sklearn.metrics import accuracy_score
 import os
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.model_selection import RandomizedSearchCV
-from skimage.exposure import histogram
-from matplotlib.pyplot import bar
-from scipy.signal import convolve2d
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.preprocessing import LabelBinarizer
 from skimage.feature import hog
-from sklearn.calibration import LabelEncoder
 from copy import deepcopy
 
 def show_images(images,titles=None):
@@ -183,131 +170,15 @@ def apply_sift(X_train_preprocess):
     
 # Pad the SIFT descriptors to the maximum length
 def pad_sift_descriptors(X_train_sift, fixed_len):
-    # Create a generator that yields each padded descriptor on-the-fly
     padded_descriptors = (np.pad(des, (0, max(0, fixed_len - des.shape[0])))[:fixed_len] for des in X_train_sift)
 
     # Convert the generator to a numpy array
     X_train_sift_np = np.array(list(padded_descriptors))
     return X_train_sift_np
 
-def Laplacian_filter(img):
-    laplacian_filter = np.array([
-        [-1,-1,-1],
-        [-1,8,-1],
-        [-1,-1,-1]
-    ])
-    edge_image = convolve2d(img, laplacian_filter)
-    edge_image = np.where(edge_image > 0.5, edge_image, 0)
-    edge_image = np.where(edge_image < 0.5, edge_image, 255)
-
-    edge_image = 255 - edge_image
-    return edge_image
-
-def get_edm1_matrix(edge_image):
-    edm_matrix = np.zeros((3,3))
-    # Pad the image with ones
-    edge_image = np.pad(edge_image, 1, mode='constant', constant_values=1)
-    for i in range(0, edge_image.shape[0]):
-        for j in range(0, edge_image.shape[1]):
-            if edge_image[i, j] == 0:
-                edm_matrix[1,1] += 1
-                if edge_image[i, j + 1] == 0:
-                    edm_matrix[1,2] += 1
-                if edge_image[i + 1, j + 1] == 0:
-                    edm_matrix[2,2] += 1
-                if edge_image[i + 1, j] == 0:
-                    edm_matrix[2,1] += 1
-                if edge_image[i + 1, j - 1] == 0:
-                    edm_matrix[2,0] += 1
-                if edge_image[i, j - 1] == 0:
-                    edm_matrix[1,0] += 1
-                if edge_image[i - 1, j - 1] == 0:
-                    edm_matrix[0,0] += 1
-                if edge_image[i - 1, j] == 0:
-                    edm_matrix[0,1] += 1
-                if edge_image[i - 1, j + 1] == 0:
-                    edm_matrix[0,2] += 1
-    return edm_matrix
-
-def sort_values(edm1_matrix):
-    values = edm1_matrix.flatten()
-    edm1_occurrences_sorted = {}
-    edm1_occurrences_sorted[values[5]] = [5,3]
-    if values[2] not in edm1_occurrences_sorted:
-        edm1_occurrences_sorted[values[2]] = [2,6]
-    else:
-        edm1_occurrences_sorted[values[2]].extend([2,6])
-    if values[1] not in edm1_occurrences_sorted:
-        edm1_occurrences_sorted[values[1]] = [1,7]
-    else:
-        edm1_occurrences_sorted[values[1]].extend([1,7])
-    if values[0] not in edm1_occurrences_sorted:
-        edm1_occurrences_sorted[values[0]] = [0,8]
-    else:
-        edm1_occurrences_sorted[values[0]].extend([0,8])
-    edm1_occurrences_sorted = dict(sorted(edm1_occurrences_sorted.items(), reverse=True))
-
-    lst = []
-    for key in edm1_occurrences_sorted:
-        lst.extend(edm1_occurrences_sorted[key])
-    return lst
-
-def get_first_occurrence(neighboring_indices, edm1_occurrences_sorted_list):
-    for idx in edm1_occurrences_sorted_list:
-        if idx in neighboring_indices:
-            return idx
-        
-def get_edm2_matrix(edge_image, edm1_matrix):
-    edm2_matrix_flattened = np.zeros(9)
-    edm1_occurrences_sorted_list = sort_values(edm1_matrix)
-    edm2_matrix_flattened[4] = edm1_matrix[1,1]
-    edge_image = np.pad(edge_image, 1, mode='constant', constant_values=1)
-    for i in range(0, edge_image.shape[0]):
-        for j in range(0, edge_image.shape[1]):
-            neighboring_indices = []
-            if edge_image[i, j] == 0:
-                if edge_image[i, j + 1] == 0:
-                    neighboring_indices.append(5)
-                if edge_image[i - 1, j + 1] == 0:
-                    neighboring_indices.append(2)
-                if edge_image[i - 1, j] == 0:
-                    neighboring_indices.append(1)
-                if edge_image[i - 1, j - 1] == 0:
-                    neighboring_indices.append(0)
-                if edge_image[i, j - 1] == 0:
-                    neighboring_indices.append(3)
-                if edge_image[i + 1, j - 1] == 0:
-                    neighboring_indices.append(6)
-                if edge_image[i + 1, j] == 0:  
-                    neighboring_indices.append(7)
-                if edge_image[i + 1, j + 1] == 0:
-                    neighboring_indices.append(8)
-
-                first_occurrence = get_first_occurrence(neighboring_indices, edm1_occurrences_sorted_list)
-                edm2_matrix_flattened[first_occurrence] += 1
-    edm2_matrix = edm2_matrix_flattened.reshape(3,3)   
-    return edm2_matrix
-
-def apply_edm(X_train_preprocess):
-    edge_images = [Laplacian_filter(img) for img in tqdm(X_train_preprocess)]
-    
-    edm1_matrices = [get_edm1_matrix(edge_img) for edge_img in tqdm(edge_images)]
-    edm2_matrices = [get_edm2_matrix(edge_images[i], edm1_matrices[i]) for i in tqdm(range(len(edge_images)))]
-    
-    edm1_matrices = np.array(edm1_matrices)
-    edm2_matrices = np.array(edm2_matrices)
-
-    edm1_matrices = edm1_matrices.reshape(-1,9)
-    edm2_matrices = edm2_matrices.reshape(-1,9)
-    return edm1_matrices, edm2_matrices
-
-def apply_additional_edm_features(X_edm1, X_edm2):
-    edges_direction = np.max(X_edm1, axis=1)
-    edges_direction = edges_direction.reshape(-1,1)
-    homogeneity = np.array([x/np.sum(x) for x in X_edm1])
-    pixel_regularity = np.array([x/x[4] for x in X_edm1])
-    edges_regularity = np.array([x / x[4] for x in X_edm2])
-    return edges_direction, homogeneity, pixel_regularity, edges_regularity
+def evaluate(y_pred, y_test):
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f'Accuracy: {accuracy*100:.4f}%')
 
 class Preprocessing():
     def __init__(self, preprocess_pipe):
@@ -325,14 +196,13 @@ class Preprocessing():
             X_features_transformed = self.preprocess_pipe.transform(X_features)
         else:
             X_features_transformed = self.preprocess_pipe.fit_transform(X_features)
-            
-        with open('preprocess_pipe.pkl', 'wb') as f:
-            pickle.dump(self.preprocess_pipe, f)
+            with open('preprocess_pipe.pkl', 'wb') as f:
+                pickle.dump(self.preprocess_pipe, f)
             
         return X_features_transformed
     
 class PyTorchClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim, preprocess_pipe, learning_rate=0.0002 , epoch=50):
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim, learning_rate=0.0002 , epoch=50):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim1 = hidden_dim1
@@ -341,7 +211,6 @@ class PyTorchClassifier(nn.Module):
         self.best_accuracy = -1  # Initialize with a value that will definitely be improved upon
         self.learning_rate = learning_rate
         self.epoch = epoch
-        self.preprocess_pipe = preprocess_pipe
         self.model = self.create_model()
 
     def create_model(self):
@@ -414,9 +283,7 @@ class PyTorchClassifier(nn.Module):
         self.save_best_model('best_model.pth')
 
     def predict(self, X):
-        preprocess_module = Preprocessing(self.preprocess_pipe)
-        X_features_transformed = preprocess_module.preprocess_data(X, test=True)
-        X_tensor = torch.FloatTensor(X_features_transformed)
+        X_tensor = torch.FloatTensor(X)
         with torch.no_grad():
             predictions = self.model(X_tensor)
         _, predicted = torch.max(predictions, 1)
@@ -424,3 +291,98 @@ class PyTorchClassifier(nn.Module):
 
     def save_best_model(self, filepath):
         torch.save(self.best_model_state, filepath)
+        
+if __name__ == "__main__":
+    labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
+    
+    preprocess_pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('pca', PCA(n_components=0.99)),
+    ])
+
+    load = False
+    if load:
+        X_data, y_labels, _ = load_images()
+
+        with open('X_data.pkl', 'wb') as f:
+            pickle.dump(X_data, f)
+
+        with open('y_labels.pkl', 'wb') as f:
+            pickle.dump(y_labels, f)
+    else:
+        with open('X_data.pkl', 'rb') as f:
+            X_data = pickle.load(f)
+
+        with open('y_labels.pkl', 'rb') as f:
+            y_labels = pickle.load(f)
+            
+    # Split the data into training and validation sets
+    X_train, X_val_test, y_train, y_val_test = train_test_split(X_data, y_labels, test_size=0.20, random_state=42, stratify=y_labels)
+    X_val, X_test, y_val, y_test = train_test_split(X_val_test, y_val_test, test_size=0.25, random_state=42, stratify=y_val_test)
+    
+    with open('X_train.pkl', 'wb') as f:
+        pickle.dump(X_train, f)
+            
+    with open('X_val.pkl', 'wb') as f:
+        pickle.dump(X_val, f)
+        
+    with open('X_test.pkl', 'wb') as f:
+        pickle.dump(X_test, f)
+            
+    with open('y_train.pkl', 'wb') as f:
+        pickle.dump(y_train, f)
+            
+    with open('y_val.pkl', 'wb') as f:
+        pickle.dump(y_val, f)
+        
+    with open('y_test.pkl', 'wb') as f:
+        pickle.dump(y_test, f)
+        
+    preprocess_module = Preprocessing(preprocess_pipe)
+    X_train_features = preprocess_module.preprocess_data(X_train)
+    with open('X_train_features.pkl', 'wb') as f:
+        pickle.dump(X_train_features, f)
+        
+    input_dim = X_train_features.shape[1]
+    
+    X_val_features = preprocess_module.preprocess_data(X_val, test=True)
+    with open('X_val_features.pkl', 'wb') as f:
+        pickle.dump(X_val_features, f)
+        
+    with open('preprocess_pipe.pkl', 'rb') as f:
+        preprocess_pipe = pickle.load(f)
+            
+    pytorch_model = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
+
+    with open('X_train_features.pkl', 'rb') as f:
+        X_train_features = pickle.load(f)
+        
+    with open('X_val_features.pkl', 'rb') as f:
+        X_val_features = pickle.load(f)
+        
+    with open('y_train.pkl', 'rb') as f:
+        y_train = pickle.load(f)
+            
+    with open('y_val.pkl', 'rb') as f:
+        y_val = pickle.load(f)
+
+    pytorch_model.fit(X_train_features, X_val_features, y_train, y_val, labels)
+    
+    with open('X_test.pkl', 'rb') as f:
+        X_test = pickle.load(f)
+        
+    with open('y_test.pkl', 'rb') as f:
+        y_test = pickle.load(f)
+
+
+    preprocess_module = Preprocessing(preprocess_pipe)
+    X_test_features_transformed = preprocess_module.preprocess_data(X_test, test=True)
+    pytorch_classifier = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
+    pytorch_classifier.load_state_dict(torch.load("best_model.pth"))
+    pytorch_classifier.eval()
+    
+    y_pred = pytorch_classifier.predict(X_test_features_transformed)
+    
+    y_test =  [labels.index(i) for i in y_test]
+    
+    accuracy = evaluate(y_pred, y_test)
