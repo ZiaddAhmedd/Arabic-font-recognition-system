@@ -184,7 +184,7 @@ class Preprocessing():
     def __init__(self, preprocess_pipe):
         self.preprocess_pipe = preprocess_pipe
         
-    def preprocess_data(self, X, test=False):
+    def preprocess_data(self, X , test = False):
         fixed_len = 128 * 350
         X_preprocess = [preprocess(i) for i in tqdm(X)]
         X_preprocess = np.array(X_preprocess)
@@ -198,7 +198,17 @@ class Preprocessing():
             X_features_transformed = self.preprocess_pipe.fit_transform(X_features)
             with open('preprocess_pipe.pkl', 'wb') as f:
                 pickle.dump(self.preprocess_pipe, f)
-            
+        return X_features_transformed
+    
+    def preprocess_test_data(self, X):
+        fixed_len = 128 * 350
+        X_preprocess = preprocess(X)
+        X_preprocess = [np.array(X_preprocess)]
+        X_hog = apply_hog(X_preprocess)
+        X_sift = apply_sift(X_preprocess)
+        X_sift_padded = pad_sift_descriptors(X_sift, fixed_len)
+        X_features = np.concatenate((X_hog, X_sift_padded), axis=1)
+        X_features_transformed = self.preprocess_pipe.transform(X_features)
         return X_features_transformed
     
 class PyTorchClassifier(nn.Module):
@@ -300,15 +310,15 @@ if __name__ == "__main__":
         ('pca', PCA(n_components=0.99)),
     ])
 
-    load = False
+    load = True
     if load:
         X_data, y_labels, _ = load_images()
 
-        with open('X_data.pkl', 'wb') as f:
-            pickle.dump(X_data, f)
+        # with open('X_data.pkl', 'wb') as f:
+        #     pickle.dump(X_data, f)
 
-        with open('y_labels.pkl', 'wb') as f:
-            pickle.dump(y_labels, f)
+        # with open('y_labels.pkl', 'wb') as f:
+        #     pickle.dump(y_labels, f)
     else:
         with open('X_data.pkl', 'rb') as f:
             X_data = pickle.load(f)
@@ -320,37 +330,42 @@ if __name__ == "__main__":
     X_train, X_val_test, y_train, y_val_test = train_test_split(X_data, y_labels, test_size=0.20, random_state=42, stratify=y_labels)
     X_val, X_test, y_val, y_test = train_test_split(X_val_test, y_val_test, test_size=0.25, random_state=42, stratify=y_val_test)
     
-    with open('X_train.pkl', 'wb') as f:
-        pickle.dump(X_train, f)
+    # with open('X_train.pkl', 'wb') as f:
+    #     pickle.dump(X_train, f)
             
-    with open('X_val.pkl', 'wb') as f:
-        pickle.dump(X_val, f)
+    # with open('X_val.pkl', 'wb') as f:
+    #     pickle.dump(X_val, f)
         
-    with open('X_test.pkl', 'wb') as f:
-        pickle.dump(X_test, f)
+    # with open('X_test.pkl', 'wb') as f:
+    #     pickle.dump(X_test, f)
             
-    with open('y_train.pkl', 'wb') as f:
-        pickle.dump(y_train, f)
+    # with open('y_train.pkl', 'wb') as f:
+    #     pickle.dump(y_train, f)
             
-    with open('y_val.pkl', 'wb') as f:
-        pickle.dump(y_val, f)
+    # with open('y_val.pkl', 'wb') as f:
+    #     pickle.dump(y_val, f)
         
-    with open('y_test.pkl', 'wb') as f:
-        pickle.dump(y_test, f)
+    # with open('y_test.pkl', 'wb') as f:
+    #     pickle.dump(y_test, f)
+                
+    # with open('preprocess_pipe.pkl', 'rb') as f:
+    #     preprocess_pipe = pickle.load(f)
         
     preprocess_module = Preprocessing(preprocess_pipe)
     X_train_features = preprocess_module.preprocess_data(X_train)
     with open('X_train_features.pkl', 'wb') as f:
         pickle.dump(X_train_features, f)
+    
+    with open('X_train_features.pkl', 'rb') as f:
+        X_train_features = pickle.load(f)
         
     input_dim = X_train_features.shape[1]
+    print(f'Input Dimension: {input_dim}')
     
     X_val_features = preprocess_module.preprocess_data(X_val, test=True)
     with open('X_val_features.pkl', 'wb') as f:
         pickle.dump(X_val_features, f)
-        
-    with open('preprocess_pipe.pkl', 'rb') as f:
-        preprocess_pipe = pickle.load(f)
+
             
     pytorch_model = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
 
