@@ -1,10 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image as im
 import pickle
 import cv2
 from tqdm import tqdm
-from scipy.ndimage import rotate
 from sklearn.metrics import accuracy_score
 import os
 from sklearn.model_selection import train_test_split
@@ -14,145 +11,17 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import LabelBinarizer
 from skimage.feature import hog
 from copy import deepcopy
-
-def show_images(images,titles=None):
-    """
-    This function is used to show image(s) with titles by sending an array of images and an array of associated titles.
-    images[0] will be drawn with the title titles[0] if exists.
-    """
-    n_ims = len(images)
-    if titles is None: titles = ['(%d)' % i for i in range(1,n_ims + 1)]
-    fig = plt.figure()
-    n = 1
-    for image,title in zip(images,titles):
-        a = fig.add_subplot(1,n_ims,n)
-        if image.ndim == 2: 
-            plt.gray()
-        plt.imshow(image)
-        a.set_title(title)
-        plt.axis('off')
-        n += 1
-    fig.set_size_inches(np.array(fig.get_size_inches()) * n_ims)
-    plt.show() 
-
-def load_images():
-    """
-    This function is used to load the images from the fonts-dataset folder.
-    """
-    images_train = []
-    labels_train = []
-    filenames = []
-    labels = ['IBM Plex Sans Arabic', 'Lemonada', 'Marhey', 'Scheherazade New']
-    empty_images_filenames = ["360.jpeg","627.jpeg","853.jpeg"] 
-    # Use tqdm to show a progress bar
-    for i in tqdm(labels):
-        for filename in os.listdir(f'fonts-dataset/{i}'):
-            img = cv2.imread(f'fonts-dataset/{i}/{filename}', cv2.IMREAD_GRAYSCALE)
-            if i == "Lemonada" and filename in empty_images_filenames:
-                print(f"{filename} is empty image!")
-                continue
-            images_train.append(img)
-            labels_train.append(i)
-            filenames.append(filename)
-    return images_train, labels_train, filenames
-
-def find_score(arr, angle):
-    """
-    Find the score of the skew angle to be used in deskewing the image
-    
-    Args:
-    arr: the image array
-    angle: the angle to rotate the image by
-    
-    Returns:
-    hist: the histogram of the image
-    score: the score of the skew angle
-    """
-    
-    # mode{‘reflect’, ‘grid-mirror’, ‘constant’, ‘grid-constant’, ‘nearest’, ‘mirror’, ‘grid-wrap’, ‘wrap’}
-    data = rotate(arr, angle, reshape=False, order=0, mode='constant', cval=0, prefilter=False)
-    hist = np.sum(data, axis=1)
-    score = np.sum((hist[1:] - hist[:-1]) ** 2)
-    return hist, score
-
-def rotate_image(image, angle):
-    """
-    Rotates an image by a given angle and fills the remaining pixels with white color.
-
-    Args:
-        image: A NumPy array representing the input image.
-        angle: The rotation angle in degrees.
-
-    Returns:
-        A new NumPy array representing the rotated image.
-    """
-    # Get image height and width
-    height, width = image.shape[:2]
-
-    # Compute the rotation matrix
-    rotation_matrix = cv2.getRotationMatrix2D((width / 2, height / 2), angle, 1)
-
-    # Perform the rotation and fill the remaining pixels with white color
-    rotated_image = cv2.warpAffine(image, rotation_matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
-
-    return rotated_image
-
-def deskew(binary_img):
-    """
-    Deskew the image
-    
-    Args:
-    binary_img: the binary image
-    
-    Returns:
-    pix: the deskewed image
-    """
-    bin_img = (binary_img // 255.0)
-
-    angles = np.array ([0 , 45 , 90 , 135 , 180 , 225 , 270 , 315])
-    scores = []
-    for angle in angles:
-        hist, score = find_score(bin_img, angle)
-        scores.append(score)
-
-    best_score = max(scores)
-    best_angle = angles[scores.index(best_score)]
-
-    # correct skew
-    data = rotate_image(bin_img, best_angle)
-    img = im.fromarray((255 * data).astype("uint8"))
-
-    pix = np.array(img)
-    return pix
-
-def preprocess(img):
-    """
-    Preprocess the image
-    
-    Args:
-    img: the image
-    
-    Returns:
-    img: the preprocessed image
-    """
-    image_size = 600
-    sharpen_kernel = np.array([[0,-1, 0], [-1,5,-1], [0,-1,0]])
-    img = cv2.medianBlur(img, 3) # To remove Salt and Pepper noise
-    img = cv2.filter2D(img, -1, sharpen_kernel)  # Sharpen the image
-    img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1] # Convert the image to binary
-    img = cv2.bitwise_not(img) if np.mean(img) > 127 else img # Invert the image if the mean is less than 127 
-    img = deskew(img) # Deskew the image
-    final_img = cv2.resize(img, (image_size, image_size)) # Resize the image
-    return final_img
+from utils import *
+from preprocess import *
 
 def apply_hog(X_train_preprocess):
     X_train_hog = []
-    for i in tqdm(X_train_preprocess):
+    for i in X_train_preprocess:
         X_train_hog.append(hog(i, orientations= 16, pixels_per_cell=(32, 32), cells_per_block=(4, 4), block_norm='L2-Hys'))
     X_train_hog = np.array(X_train_hog)
     return X_train_hog
@@ -161,7 +30,7 @@ def apply_sift(X_train_preprocess):
     sift = cv2.SIFT_create()
 
     X_train_sift = []
-    for i in tqdm(X_train_preprocess):
+    for i in X_train_preprocess:
         kp, des = sift.detectAndCompute(i, None)
         if des is None:
             # Add a row of zeros to the SIFT descriptors
@@ -306,4 +175,42 @@ class PyTorchClassifier(nn.Module):
         torch.save(self.best_model_state, filepath)
         
 if __name__ == "__main__":
-    ## TODO
+    labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
+
+    preprocess_pipe = Pipeline([
+        ('scaler', StandardScaler()),
+        ('pca', PCA(n_components=0.99)),
+    ])
+    
+    X_data, y_labels, _ = load_images()
+    X_train, X_val, y_train, y_val = train_test_split(X_data, y_labels, test_size=0.20, random_state=42, stratify=y_labels)
+    
+    #########################################################################################
+    # Train the model
+    #########################################################################################
+    preprocess_module = Preprocessing(preprocess_pipe)
+    X_train_features = preprocess_module.preprocess_data(X_train)
+    input_dim = X_train_features.shape[1]
+    X_val_features = preprocess_module.preprocess_data(X_val, test=True)
+    pytorch_model = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
+    pytorch_model.fit(X_train_features, X_val_features, y_train, y_val, labels)
+
+
+    #########################################################################################
+    # Test the model
+    #########################################################################################
+    
+    X_test = []
+    y_test = []
+    for i in tqdm(labels):
+        for filename in os.listdir(f'content/train/{i}'):
+            img = cv2.imread(f'content/train/{i}/{filename}', cv2.IMREAD_GRAYSCALE)
+            X_test.append(img)
+            y_test.append(i)
+            
+    y_test =  [labels.index(i) for i in y_test]
+        
+    preprocess_module = Preprocessing(preprocess_pipe)
+    X_test_features_transformed = preprocess_module.preprocess_data(X_test, test=True)
+    y_pred = pytorch_model.predict(X_test_features_transformed)
+    accuracy = evaluate(y_pred, y_test)
