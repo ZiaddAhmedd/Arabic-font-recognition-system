@@ -17,10 +17,10 @@ labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
 with open("preprocess_pipe.pkl", "rb") as f:
     loaded_pipeline = pickle.load(f)
     
-# Intialize the preprocessor
+# Initialize the preprocessor
 preprocessor = Preprocessing(loaded_pipeline)
 
-# Initilize the pytorch model
+# Initialize the pytorch model
 pytorch_classifier = PyTorchClassifier(2983, 512, 256, 4 , learning_rate=0.00025, epoch=50)
 pytorch_classifier.load_state_dict(torch.load("best_model.pth"))
 pytorch_classifier.eval()
