@@ -304,3 +304,6 @@ class PyTorchClassifier(nn.Module):
 
     def save_best_model(self, filepath):
         torch.save(self.best_model_state, filepath)
+        
+if __name__ == "__main__":
+    ## TODO
