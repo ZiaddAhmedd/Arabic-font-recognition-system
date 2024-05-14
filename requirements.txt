@@ -2,7 +2,6 @@ numpy
 pandas
 matplotlib
 scipy
-Pillow
 opencv-python
 tqdm
 joblib
@@ -10,3 +9,5 @@ scikit-learn
 scikit-image
 torch
 opencv-python
+fastapi
+uvicorn

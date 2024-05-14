@@ -98,7 +98,7 @@ def rotate_image(image, angle):
     rotation_matrix = cv2.getRotationMatrix2D((width / 2, height / 2), angle, 1)
 
     # Perform the rotation and fill the remaining pixels with white color
-    rotated_image = cv2.warpAffine(image, rotation_matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(1, 1, 1))
+    rotated_image = cv2.warpAffine(image, rotation_matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
 
     return rotated_image
 
@@ -113,6 +113,7 @@ def deskew(binary_img):
     pix: the deskewed image
     """
     bin_img = (binary_img // 255.0)
+
     angles = np.array ([0 , 45 , 90 , 135 , 180 , 225 , 270 , 315])
     scores = []
     for angle in angles:
@@ -122,6 +123,7 @@ def deskew(binary_img):
     best_score = max(scores)
     best_angle = angles[scores.index(best_score)]
 
+    # correct skew
     data = rotate_image(bin_img, best_angle)
     img = im.fromarray((255 * data).astype("uint8"))
 
@@ -143,9 +145,9 @@ def preprocess(img):
     img = cv2.medianBlur(img, 3) # To remove Salt and Pepper noise
     img = cv2.filter2D(img, -1, sharpen_kernel)  # Sharpen the image
     img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1] # Convert the image to binary
-    deskewed_img = deskew(img) # Deskew the image
-    final_img = cv2.bitwise_not(deskewed_img) if np.mean(deskewed_img) > 127 else deskewed_img # Invert the image if the mean is less than 127 
-    final_img = cv2.resize(final_img, (image_size, image_size)) # Resize the image
+    img = cv2.bitwise_not(img) if np.mean(img) > 127 else img # Invert the image if the mean is less than 127 
+    img = deskew(img) # Deskew the image
+    final_img = cv2.resize(img, (image_size, image_size)) # Resize the image
     return final_img
 
 def apply_hog(X_train_preprocess):
@@ -170,6 +172,7 @@ def apply_sift(X_train_preprocess):
     
 # Pad the SIFT descriptors to the maximum length
 def pad_sift_descriptors(X_train_sift, fixed_len):
+    # Create a generator that yields each padded descriptor on-the-fly
     padded_descriptors = (np.pad(des, (0, max(0, fixed_len - des.shape[0])))[:fixed_len] for des in X_train_sift)
 
     # Convert the generator to a numpy array
@@ -184,7 +187,7 @@ class Preprocessing():
     def __init__(self, preprocess_pipe):
         self.preprocess_pipe = preprocess_pipe
         
-    def preprocess_data(self, X , test = False):
+    def preprocess_data(self, X, test=False):
         fixed_len = 128 * 350
         X_preprocess = [preprocess(i) for i in tqdm(X)]
         X_preprocess = np.array(X_preprocess)
@@ -210,7 +213,7 @@ class Preprocessing():
         X_features = np.concatenate((X_hog, X_sift_padded), axis=1)
         X_features_transformed = self.preprocess_pipe.transform(X_features)
         return X_features_transformed
-    
+
 class PyTorchClassifier(nn.Module):
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim, learning_rate=0.0002 , epoch=50):
         super().__init__()
@@ -296,109 +299,8 @@ class PyTorchClassifier(nn.Module):
         X_tensor = torch.FloatTensor(X)
         with torch.no_grad():
             predictions = self.model(X_tensor)
-            print (predictions)
         _, predicted = torch.max(predictions, 1)
         return predicted.numpy()
 
     def save_best_model(self, filepath):
         torch.save(self.best_model_state, filepath)
-        
-if __name__ == "__main__":
-    labels = ['Scheherazade New', 'Marhey', 'Lemonada', 'IBM Plex Sans Arabic']
-    
-    preprocess_pipe = Pipeline([
-        ('scaler', StandardScaler()),
-        ('pca', PCA(n_components=0.99)),
-    ])
-
-    load = True
-    if load:
-        X_data, y_labels, _ = load_images()
-
-        # with open('X_data.pkl', 'wb') as f:
-        #     pickle.dump(X_data, f)
-
-        # with open('y_labels.pkl', 'wb') as f:
-        #     pickle.dump(y_labels, f)
-    else:
-        with open('X_data.pkl', 'rb') as f:
-            X_data = pickle.load(f)
-
-        with open('y_labels.pkl', 'rb') as f:
-            y_labels = pickle.load(f)
-            
-    # Split the data into training and validation sets
-    X_train, X_val_test, y_train, y_val_test = train_test_split(X_data, y_labels, test_size=0.20, random_state=42, stratify=y_labels)
-    X_val, X_test, y_val, y_test = train_test_split(X_val_test, y_val_test, test_size=0.25, random_state=42, stratify=y_val_test)
-    
-    # with open('X_train.pkl', 'wb') as f:
-    #     pickle.dump(X_train, f)
-            
-    # with open('X_val.pkl', 'wb') as f:
-    #     pickle.dump(X_val, f)
-        
-    # with open('X_test.pkl', 'wb') as f:
-    #     pickle.dump(X_test, f)
-            
-    # with open('y_train.pkl', 'wb') as f:
-    #     pickle.dump(y_train, f)
-            
-    # with open('y_val.pkl', 'wb') as f:
-    #     pickle.dump(y_val, f)
-        
-    # with open('y_test.pkl', 'wb') as f:
-    #     pickle.dump(y_test, f)
-                
-    # with open('preprocess_pipe.pkl', 'rb') as f:
-    #     preprocess_pipe = pickle.load(f)
-        
-    preprocess_module = Preprocessing(preprocess_pipe)
-    X_train_features = preprocess_module.preprocess_data(X_train)
-    with open('X_train_features.pkl', 'wb') as f:
-        pickle.dump(X_train_features, f)
-    
-    with open('X_train_features.pkl', 'rb') as f:
-        X_train_features = pickle.load(f)
-        
-    input_dim = X_train_features.shape[1]
-    print(f'Input Dimension: {input_dim}')
-    
-    X_val_features = preprocess_module.preprocess_data(X_val, test=True)
-    with open('X_val_features.pkl', 'wb') as f:
-        pickle.dump(X_val_features, f)
-
-            
-    pytorch_model = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
-
-    with open('X_train_features.pkl', 'rb') as f:
-        X_train_features = pickle.load(f)
-        
-    with open('X_val_features.pkl', 'rb') as f:
-        X_val_features = pickle.load(f)
-        
-    with open('y_train.pkl', 'rb') as f:
-        y_train = pickle.load(f)
-            
-    with open('y_val.pkl', 'rb') as f:
-        y_val = pickle.load(f)
-
-    pytorch_model.fit(X_train_features, X_val_features, y_train, y_val, labels)
-    
-    with open('X_test.pkl', 'rb') as f:
-        X_test = pickle.load(f)
-        
-    with open('y_test.pkl', 'rb') as f:
-        y_test = pickle.load(f)
-
-
-    preprocess_module = Preprocessing(preprocess_pipe)
-    X_test_features_transformed = preprocess_module.preprocess_data(X_test, test=True)
-    pytorch_classifier = PyTorchClassifier(input_dim, 512, 256, len(labels), learning_rate=0.00025, epoch=50)
-    pytorch_classifier.load_state_dict(torch.load("best_model.pth"))
-    pytorch_classifier.eval()
-    
-    y_pred = pytorch_classifier.predict(X_test_features_transformed)
-    
-    y_test =  [labels.index(i) for i in y_test]
-    
-    accuracy = evaluate(y_pred, y_test)

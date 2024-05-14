@@ -21,7 +21,7 @@ with open("preprocess_pipe.pkl", "rb") as f:
 preprocessor = Preprocessing(loaded_pipeline)
 
 # Initialize the pytorch model
-pytorch_classifier = PyTorchClassifier(2983, 512, 256, 4 , learning_rate=0.00025, epoch=50)
+pytorch_classifier = PyTorchClassifier(2981, 512, 256, 4 , learning_rate=0.00025, epoch=50)
 pytorch_classifier.load_state_dict(torch.load("best_model.pth"))
 pytorch_classifier.eval()
 
