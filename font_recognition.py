@@ -296,6 +296,7 @@ class PyTorchClassifier(nn.Module):
         X_tensor = torch.FloatTensor(X)
         with torch.no_grad():
             predictions = self.model(X_tensor)
+            print (predictions)
         _, predicted = torch.max(predictions, 1)
         return predicted.numpy()
 
