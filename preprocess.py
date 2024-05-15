@@ -92,3 +92,88 @@ def preprocess(img):
     img = deskew(img) # Deskew the image
     final_img = cv2.resize(img, (image_size, image_size)) # Resize the image
     return final_img
+
+def remove_rows(image, threshold=0.008):
+    """
+    Remove rows with white pixels less than 10% of the image size
+    
+    Args:
+    X_preprocess_sliced: the list of images
+    max_shape_index: the index of the image to process
+    
+    Returns:
+    image: the image after removing the rows
+    """
+    white_pixels_per_row = np.sum(image == 255, axis=1)
+    rows_to_remove = white_pixels_per_row < image.shape[1] * threshold
+    image = image[~rows_to_remove]
+    return image
+
+def remove_columns(image, threshold = 0.1):
+    """
+    Remove columns with white pixels less than 10% of the image size
+    
+    Args:
+    X_preprocess_sliced: the list of images
+    max_shape_index: the index of the image to process
+    
+    Returns:
+    image: the image after removing the columns
+    """
+    white_pixels_per_column = np.sum(image == 255, axis=0)
+    # white < 0.1 * height
+    columns_to_remove = white_pixels_per_column < image.shape[0] * threshold
+    image = image[:, ~columns_to_remove]
+    return image
+
+def pad_image(image):
+    """
+    Pad the image with zeros if the width is less than 515 and the height is less than 270
+    
+    Args:
+    image: the image
+    
+    Returns:
+    image: the padded image
+    """
+    if image.shape[1] < 515:
+        pad_width = 515 - image.shape[1]
+        image = np.pad(image, ((0, 0), (0, pad_width)), 'constant', constant_values=(0, 0))
+    if image.shape[0] < 270:
+        pad_height = 270 - image.shape[0]
+        image = np.pad(image, ((0, pad_height), (0, 0)), 'constant', constant_values=(0, 0))
+    return image
+
+def crop_image(image):
+    """
+    Crop the image if the width is more than 515 and the height is more than 270
+    
+    Args:
+    image: the image
+    
+    Returns:
+    image: the cropped image
+    """
+    if image.shape[1] > 515:
+        crop_width = image.shape[1] - 515
+        image = image[:, crop_width//2:-(crop_width//2)]
+    if image.shape[0] > 267:
+        crop_height = image.shape[0] - 267
+        image = image[crop_height//2:-(crop_height//2), :]
+    return cv2.resize(image, (515, 270))
+
+def preprocess_new(img, columns_threshold=0.001, rows_threshold=0.005):
+    """
+    Preprocess the image
+    
+    Args:
+    img: the image
+    
+    Returns:
+    img: the preprocessed image
+    """
+    img = remove_columns(img, columns_threshold)
+    img = remove_rows(img, rows_threshold)
+    img = pad_image(img)
+    final_img = crop_image(img)
+    return final_img
