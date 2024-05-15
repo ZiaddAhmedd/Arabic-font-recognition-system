@@ -3,8 +3,9 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 import os
+from typing import List, Optional
 
-def show_images(images,titles=None):
+def show_images(images, titles: Optional[List[str]] = None) -> None:
     """
     This function is used to show image(s) with titles by sending an array of images and an array of associated titles.
     images[0] will be drawn with the title titles[0] if exists.

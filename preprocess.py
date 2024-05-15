@@ -2,8 +2,9 @@ import numpy as np
 from scipy.ndimage import rotate
 import cv2
 from PIL import Image as im
+from typing import Tuple
 
-def find_score(arr, angle):
+def find_score(arr, angle: int) -> Tuple[np.ndarray, float]:
     """
     Find the score of the skew angle to be used in deskewing the image
     
@@ -22,7 +23,7 @@ def find_score(arr, angle):
     score = np.sum((hist[1:] - hist[:-1]) ** 2)
     return hist, score
 
-def rotate_image(image, angle):
+def rotate_image(image, angle: int):
     """
     Rotates an image by a given angle and fills the remaining pixels with white color.
 
@@ -44,7 +45,7 @@ def rotate_image(image, angle):
 
     return rotated_image
 
-def deskew(binary_img):
+def deskew(binary_img) -> np.ndarray:
     """
     Deskew the image
     

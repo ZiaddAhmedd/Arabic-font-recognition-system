@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score
 import torch
 import torch.nn as nn
 import torch.optim
+from typing import List
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import LabelBinarizer
 from skimage.feature import hog
@@ -19,14 +20,14 @@ from copy import deepcopy
 from utils import *
 from preprocess import *
 
-def apply_hog(X_train_preprocess):
+def apply_hog(X_train_preprocess: List[np.ndarray]) -> np.ndarray:
     X_train_hog = []
     for i in X_train_preprocess:
         X_train_hog.append(hog(i, orientations= 16, pixels_per_cell=(32, 32), cells_per_block=(4, 4), block_norm='L2-Hys'))
     X_train_hog = np.array(X_train_hog)
     return X_train_hog
 
-def apply_sift(X_train_preprocess):
+def apply_sift(X_train_preprocess: List[np.ndarray]) -> List[np.ndarray]:
     sift = cv2.SIFT_create()
 
     X_train_sift = []
@@ -40,7 +41,7 @@ def apply_sift(X_train_preprocess):
     return X_train_sift
     
 # Pad the SIFT descriptors to the maximum length
-def pad_sift_descriptors(X_train_sift, fixed_len):
+def pad_sift_descriptors(X_train_sift: List[np.ndarray], fixed_len: int) -> np.ndarray:
     # Create a generator that yields each padded descriptor on-the-fly
     padded_descriptors = (np.pad(des, (0, max(0, fixed_len - des.shape[0])))[:fixed_len] for des in X_train_sift)
 
@@ -56,7 +57,7 @@ class Preprocessing():
     def __init__(self, preprocess_pipe):
         self.preprocess_pipe = preprocess_pipe
         
-    def preprocess_data(self, X, test=False):
+    def preprocess_data(self, X, test: bool = False) -> np.ndarray:
         fixed_len = 128 * 350
         X_preprocess = [preprocess(i) for i in tqdm(X)]
         X_preprocess = np.array(X_preprocess)
@@ -72,7 +73,7 @@ class Preprocessing():
                 pickle.dump(self.preprocess_pipe, f)
         return X_features_transformed
     
-    def preprocess_test_data(self, X):
+    def preprocess_test_data(self, X) -> np.ndarray:
         fixed_len = 128 * 350
         X_preprocess = preprocess(X)
         X_preprocess = [np.array(X_preprocess)]
@@ -164,7 +165,7 @@ class PyTorchClassifier(nn.Module):
         # Save the best model parameters to the model
         self.save_best_model('best_model.pth')
 
-    def predict(self, X):
+    def predict(self, X) -> np.ndarray:
         X_tensor = torch.FloatTensor(X)
         with torch.no_grad():
             predictions = self.model(X_tensor)
